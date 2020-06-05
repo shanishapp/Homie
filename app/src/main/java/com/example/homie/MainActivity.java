@@ -27,15 +27,22 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.gson.Gson;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_CODE = 1546 ;
     private FusedLocationProviderClient fusedLocationClient;
     private LocationCallback locationCallback;
-    private Location lastLocation = null;
+    private Location lastLocation;
+    private Location homeLocation;
     private Boolean requestingLocationUpdates = false;
     private SharedPreferences sp = null;
+    TextView currentLongitude;
+    TextView currentLatitude;
+    TextView currentAccuracy;
+    String homeLongitude;
+    String homeLatitude;
 
 
     @Override
@@ -43,6 +50,23 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        currentLongitude = findViewById(R.id.longtitude_content);
+        currentLatitude = findViewById(R.id.latitude_content);
+        currentAccuracy = findViewById(R.id.accuracy_content);
+
+        sp = this.getSharedPreferences("params",MODE_PRIVATE);
+        homeLatitude = sp.getString("homeLatitude","");
+        homeLongitude = sp.getString("homeLongitude","");
+        if(! homeLatitude.equals("")) {
+            findViewById(R.id.clear_home_location).setVisibility(View.VISIBLE);
+
+            TextView homeLongtitudeTextView = findViewById(R.id.home_longtitude_content);
+            homeLongtitudeTextView.setText(homeLongitude);
+            TextView homeLatitudeTextView = findViewById(R.id.home_latitude_content);
+            homeLatitudeTextView.setText(homeLatitude);
+        } else {
+            homeLocation = null;
+        }
         locationCallback = new LocationCallback() {
             @Override
             public void onLocationResult(LocationResult locationResult) {
@@ -50,10 +74,29 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 for (Location location : locationResult.getLocations()) {
+                    Log.d("shani","in callback");
                     lastLocation = location;
+                    currentLongitude.setText(String.valueOf(lastLocation.getLongitude()));
+                    currentLatitude.setText(String.valueOf(lastLocation.getLatitude()));
+                    currentAccuracy.setText(String.valueOf(lastLocation.getAccuracy()));
+                    if ( location.getAccuracy()<=50.0) {
+                        findViewById(R.id.set_home_location).setVisibility(View.VISIBLE);
+                    }
+                    else {
+                        findViewById(R.id.set_home_location).setVisibility(View.INVISIBLE);
+                    }
                 }
             }
         };
+        requestingLocationUpdates = sp.getBoolean("requestingUpdates",false);
+        if (requestingLocationUpdates) {
+            startLocate(null);
+        }
+        else {
+            clearLocation();
+            clearHomeLocation(null);
+        }
+
 
     }
 
@@ -112,15 +155,7 @@ public class MainActivity extends AppCompatActivity {
     private void startTrackLocation()
     {
         requestingLocationUpdates = true;
-        Button button = findViewById(R.id.locate_button);
-        button.setText("Stop tracking");
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                //workmanager stop all by tag
-                stopTrackingLocation();
-            }
-        });
+        change_button();
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         fusedLocationClient.getLastLocation()
@@ -139,19 +174,37 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 });
+        startLocationUpdates();//TODO needed ??
     }
 
     private void stopTrackingLocation(){
         requestingLocationUpdates = false;
         fusedLocationClient.removeLocationUpdates(locationCallback);
-        Button button = findViewById(R.id.locate_button);
-        button.setText("Start tracking location");
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startLocate(v);
-            }
-        });
+        change_button();
+    }
+
+    private void change_button()
+    {
+        if (!requestingLocationUpdates) {
+            Button button = findViewById(R.id.locate_button);
+            button.setText("Start tracking location");
+            button.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    startLocate(v);
+                }
+            });
+        }
+        else {
+            Button button = findViewById(R.id.locate_button);
+            button.setText("Stop tracking");
+            button.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    stopTrackingLocation();
+                }
+            });
+        }
     }
 
     private void buildAlertMessageNoGps() {
@@ -186,10 +239,55 @@ public class MainActivity extends AppCompatActivity {
 
     private void startLocationUpdates() {
         LocationRequest locationRequest = new LocationRequest();
+        locationRequest.setInterval(5);
         fusedLocationClient.requestLocationUpdates(locationRequest,
                 locationCallback,
                 Looper.getMainLooper());
     }
 
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
 
+        sp.edit().putBoolean("requestingUpdates",requestingLocationUpdates)
+                .putString("homeLongitude",homeLongitude)
+                .putString("homeLatitude",homeLatitude).apply();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        sp.edit().putBoolean("requestingUpdates",requestingLocationUpdates)
+                .putString("homeLongitude",homeLongitude)
+                .putString("homeLatitude",homeLatitude).apply();
+    }
+
+    public void setHomeLocation(View view) {
+        homeLocation = lastLocation;
+        homeLongitude = String.valueOf(homeLocation.getLongitude());
+        homeLatitude = String.valueOf(homeLocation.getLatitude());
+        TextView homeLongtitudeTextView = findViewById(R.id.home_longtitude_content);
+        homeLongtitudeTextView.setText(homeLongitude);
+        TextView homeLatitudeTextView = findViewById(R.id.home_latitude_content);
+        homeLatitudeTextView.setText(homeLatitude);
+        findViewById(R.id.clear_home_location).setVisibility(View.VISIBLE);
+    }
+
+    public void clearHomeLocation(View view) {
+        homeLocation = null;
+        TextView homeLongtitudeTextView = findViewById(R.id.home_longtitude_content);
+        homeLongtitudeTextView.setText("no location");
+        homeLongitude = "";
+        TextView homeLatitudeTextView = findViewById(R.id.home_latitude_content);
+        homeLatitudeTextView.setText("no location");
+        homeLatitude = "";
+        findViewById(R.id.clear_home_location).setVisibility(View.INVISIBLE);
+    }
+
+    private void clearLocation() {
+        currentLongitude.setText("no location");
+        currentLatitude.setText("no location");
+        currentAccuracy.setText("no location");
+    }
 }
