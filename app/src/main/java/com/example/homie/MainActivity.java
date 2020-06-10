@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Debug;
@@ -20,6 +21,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -29,20 +31,30 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.gson.Gson;
 
+import java.text.DecimalFormat;
+
 public class MainActivity extends AppCompatActivity {
 
-    private static final int REQUEST_CODE = 1546 ;
-    private FusedLocationProviderClient fusedLocationClient;
-    private LocationCallback locationCallback;
+    private static final int REQUEST_CODE = 1546;
+    private static final String REQUESTING_UPDATES = "requestingUpdates";
+    private static final String HOME_LONGITUDE = "homeLongitude";
+    private static final String HOME_LATITUDE = "homeLatitude";
+    private static final String LONGTITUDE = "longtitude";
+    private static final String LATITUDE = "latitude";
+    private static final String ACCURACY = "accuracy";
+    private static final String PARAMS = "params";
+
+
     private Location lastLocation;
     private Location homeLocation;
     private Boolean requestingLocationUpdates = false;
     private SharedPreferences sp = null;
-    TextView currentLongitude;
-    TextView currentLatitude;
-    TextView currentAccuracy;
-    String homeLongitude;
-    String homeLatitude;
+    private TextView currentLongitude;
+    private TextView currentLatitude;
+    private TextView currentAccuracy;
+    private String homeLongitude;
+    private String homeLatitude;
+    private LocationManager locationManager;
 
 
     @Override
@@ -54,10 +66,14 @@ public class MainActivity extends AppCompatActivity {
         currentLatitude = findViewById(R.id.latitude_content);
         currentAccuracy = findViewById(R.id.accuracy_content);
 
-        sp = this.getSharedPreferences("params",MODE_PRIVATE);
-        homeLatitude = sp.getString("homeLatitude","");
-        homeLongitude = sp.getString("homeLongitude","");
-        if(! homeLatitude.equals("")) {
+        sp = this.getSharedPreferences(PARAMS, MODE_PRIVATE);
+        currentLongitude.setText(sp.getString(LONGTITUDE,"no location"));
+        currentLatitude.setText(sp.getString(LATITUDE,"no location"));
+        currentAccuracy.setText(sp.getString(ACCURACY,"no location"));
+
+        homeLatitude = sp.getString(HOME_LATITUDE, "");
+        homeLongitude = sp.getString(HOME_LONGITUDE, "");
+        if (!homeLatitude.equals("")) {
             findViewById(R.id.clear_home_location).setVisibility(View.VISIBLE);
 
             TextView homeLongtitudeTextView = findViewById(R.id.home_longtitude_content);
@@ -67,65 +83,65 @@ public class MainActivity extends AppCompatActivity {
         } else {
             homeLocation = null;
         }
-        locationCallback = new LocationCallback() {
-            @Override
-            public void onLocationResult(LocationResult locationResult) {
-                if (locationResult == null) {
-                    return;
-                }
-                for (Location location : locationResult.getLocations()) {
-                    Log.d("shani","in callback");
-                    lastLocation = location;
-                    currentLongitude.setText(String.valueOf(lastLocation.getLongitude()));
-                    currentLatitude.setText(String.valueOf(lastLocation.getLatitude()));
-                    currentAccuracy.setText(String.valueOf(lastLocation.getAccuracy()));
-                    if ( location.getAccuracy()<=50.0) {
-                        findViewById(R.id.set_home_location).setVisibility(View.VISIBLE);
-                    }
-                    else {
-                        findViewById(R.id.set_home_location).setVisibility(View.INVISIBLE);
-                    }
-                }
-            }
-        };
-        requestingLocationUpdates = sp.getBoolean("requestingUpdates",false);
-        if (requestingLocationUpdates) {
-            startLocate(null);
-        }
-        else {
-            clearLocation();
-            clearHomeLocation(null);
-        }
 
-
+        locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
     }
 
+    LocationListener locationListenerGPS=new LocationListener() {
+        @Override
+        public void onLocationChanged(android.location.Location location) {
+            if (location != null) {
+                lastLocation = location;
+                currentLongitude.setText(new DecimalFormat("##.#######").format(lastLocation.getLongitude()));
+                currentLatitude.setText(new DecimalFormat("##.#######").format(lastLocation.getLatitude()));
+                currentAccuracy.setText(new DecimalFormat("##.##").format(lastLocation.getAccuracy()));
+                if ( location.getAccuracy()<=50.0) {
+                    findViewById(R.id.set_home_location).setVisibility(View.VISIBLE);
+                }
+                else {
+                    findViewById(R.id.set_home_location).setVisibility(View.INVISIBLE);
+                }
+            }
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+
+        }
+
+        @Override
+        public void onProviderEnabled(String provider) {
+
+        }
+
+        @Override
+        public void onProviderDisabled(String provider) {
+            buildAlertMessageNoGps();
+        }
+    };
+
+
     public void startLocate(View view) {
+
         boolean hasPermission =
                 ActivityCompat.checkSelfPermission(this,
                         Manifest.permission.ACCESS_FINE_LOCATION)==
                         PackageManager.PERMISSION_GRANTED;
         if(hasPermission) {
-            startTrackLocation();
+            //check if gps enabled
+            if ( !locationManager.isProviderEnabled( LocationManager.GPS_PROVIDER ) ) {
+                buildAlertMessageNoGps();
+            }
+            requestingLocationUpdates = true;
+            change_button();
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,
+                    2000,
+                    1, locationListenerGPS);
         } else {
             ActivityCompat.requestPermissions(this,
                                                 new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                                                 REQUEST_CODE);
         }
-
-        final LocationManager manager = (LocationManager) getSystemService( Context.LOCATION_SERVICE );
-
-        //check if gps enabled
-        if ( !manager.isProviderEnabled( LocationManager.GPS_PROVIDER ) ) {
-            buildAlertMessageNoGps();
-        }
-
-        //continue only if the user enabled gps
-        if ( manager.isProviderEnabled( LocationManager.GPS_PROVIDER ) )
-        {
-            startTrackLocation();
-        }
-
     }
 
     @Override
@@ -133,7 +149,8 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if(grantResults[0] == PackageManager.PERMISSION_GRANTED)
         {
-            startTrackLocation();
+
+            startLocate(null);
         } else {
             if(ActivityCompat.shouldShowRequestPermissionRationale(this,
                                         Manifest.permission.ACCESS_FINE_LOCATION)){
@@ -141,7 +158,6 @@ public class MainActivity extends AppCompatActivity {
                 // maybe show before ask for permission
                 showExplanation();
             }
-
         }
     }
 
@@ -152,34 +168,9 @@ public class MainActivity extends AppCompatActivity {
         alert.show();
     }
 
-    private void startTrackLocation()
-    {
-        requestingLocationUpdates = true;
-        change_button();
-
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        fusedLocationClient.getLastLocation()
-                .addOnSuccessListener(this, new OnSuccessListener<Location>() {
-                    @Override
-                    public void onSuccess(Location location) {
-                        // Got last known location. In some rare situations this can be null.
-                        if (location != null) {
-                            // Logic to handle location object
-                            TextView latitute = findViewById(R.id.latitude_content);
-                            latitute.setText(String.valueOf(location.getLatitude()));
-                            TextView longtitute = findViewById(R.id.longtitude_content);
-                            longtitute.setText(String.valueOf(location.getLongitude()));
-                            TextView accuracy = findViewById(R.id.accuracy_content);
-                            accuracy.setText(String.valueOf(location.getAccuracy()));
-                        }
-                    }
-                });
-        startLocationUpdates();//TODO needed ??
-    }
-
     private void stopTrackingLocation(){
         requestingLocationUpdates = false;
-        fusedLocationClient.removeLocationUpdates(locationCallback);
+        locationManager.removeUpdates(locationListenerGPS);
         change_button();
     }
 
@@ -232,41 +223,40 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        requestingLocationUpdates = sp.getBoolean(REQUESTING_UPDATES, false);
         if (requestingLocationUpdates) {
-            startLocationUpdates();
+            startLocate(null);
         }
-    }
-
-    private void startLocationUpdates() {
-        LocationRequest locationRequest = new LocationRequest();
-        locationRequest.setInterval(5);
-        fusedLocationClient.requestLocationUpdates(locationRequest,
-                locationCallback,
-                Looper.getMainLooper());
     }
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
 
-        sp.edit().putBoolean("requestingUpdates",requestingLocationUpdates)
-                .putString("homeLongitude",homeLongitude)
-                .putString("homeLatitude",homeLatitude).apply();
+        sp.edit().putBoolean(REQUESTING_UPDATES,requestingLocationUpdates)
+                .putString(HOME_LONGITUDE,homeLongitude)
+                .putString(HOME_LATITUDE,homeLatitude)
+                .putString(LONGTITUDE, currentLongitude.getText().toString())
+                .putString(LATITUDE,currentLatitude.getText().toString())
+                .putString(ACCURACY,currentAccuracy.getText().toString()).apply();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-
-        sp.edit().putBoolean("requestingUpdates",requestingLocationUpdates)
-                .putString("homeLongitude",homeLongitude)
-                .putString("homeLatitude",homeLatitude).apply();
+        sp.edit().putBoolean(REQUESTING_UPDATES,requestingLocationUpdates)
+                .putString(HOME_LONGITUDE,homeLongitude)
+                .putString(HOME_LATITUDE,homeLatitude)
+                .putString(LONGTITUDE, currentLongitude.getText().toString())
+                .putString(LATITUDE,currentLatitude.getText().toString())
+                .putString(ACCURACY,currentAccuracy.getText().toString()).apply();
+        stopTrackingLocation();
     }
 
     public void setHomeLocation(View view) {
         homeLocation = lastLocation;
-        homeLongitude = String.valueOf(homeLocation.getLongitude());
-        homeLatitude = String.valueOf(homeLocation.getLatitude());
+        homeLongitude = new DecimalFormat("##.#######").format(homeLocation.getLongitude());
+        homeLatitude =new DecimalFormat("##.#######").format(homeLocation.getLatitude());
         TextView homeLongtitudeTextView = findViewById(R.id.home_longtitude_content);
         homeLongtitudeTextView.setText(homeLongitude);
         TextView homeLatitudeTextView = findViewById(R.id.home_latitude_content);
@@ -283,11 +273,5 @@ public class MainActivity extends AppCompatActivity {
         homeLatitudeTextView.setText("no location");
         homeLatitude = "";
         findViewById(R.id.clear_home_location).setVisibility(View.INVISIBLE);
-    }
-
-    private void clearLocation() {
-        currentLongitude.setText("no location");
-        currentLatitude.setText("no location");
-        currentAccuracy.setText("no location");
     }
 }
