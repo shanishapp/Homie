@@ -29,6 +29,9 @@ public class HomieApp extends Application {
         Log.d("************hi**********","bye");
         PeriodicWorkRequest locationWork = new PeriodicWorkRequest.Builder(LocationWork.class,
                                                         15, TimeUnit.MINUTES).build();
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("locationWork", ExistingPeriodicWorkPolicy.REPLACE,locationWork);
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("locationWork",
+                                                ExistingPeriodicWorkPolicy.REPLACE,locationWork);
     }
 }
+
+

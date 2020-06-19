@@ -1,6 +1,7 @@
 package com.example.homie;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -15,21 +16,25 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.concurrent.futures.CallbackToFutureAdapter;
 import androidx.work.ListenableWorker;
+import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
 
-public class LocationWork extends ListenableWorker {
+public class LocationWork extends Worker {
 
     public static final String PREVIOUS = "previous";
 
-    private LocationManager locationManager;
     private Context context;
-    private CallbackToFutureAdapter.Completer<Result> callback;
     private Location lastLocation;
+    private LocationCallback locationCallback = null;
     private Location homeLocation = null;
 
     private FusedLocationProviderClient fusedLocationClient;
@@ -42,54 +47,77 @@ public class LocationWork extends ListenableWorker {
     public LocationWork(@NonNull Context appContext, @NonNull WorkerParameters workerParams) {
         super(appContext, workerParams);
         this.context = appContext;
-        locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
         sp = context.getSharedPreferences(MainActivity.PARAMS, Context.MODE_PRIVATE);
-        String json = sp.getString(PREVIOUS,null);
+        String json = sp.getString(PREVIOUS, null);
         Gson gson = new Gson();
-        lastLocation = gson.fromJson(json,Location.class);
+        lastLocation = gson.fromJson(json, Location.class);
         //set last known home location, if exists
-        String latitude = sp.getString(MainActivity.HOME_LATITUDE,"");
-        String longtitude = sp.getString(MainActivity.HOME_LONGITUDE,"");
-        if ( !latitude.equals("") && !longtitude.equals("")) {
+        String latitude = sp.getString(MainActivity.HOME_LATITUDE, "");
+        String longtitude = sp.getString(MainActivity.HOME_LONGITUDE, "");
+        if (!latitude.equals("") && !longtitude.equals("")) {
             homeLocation = new Location(LocationManager.GPS_PROVIDER);
             homeLocation.setLatitude(Double.parseDouble(latitude));
             homeLocation.setLongitude(Double.parseDouble(longtitude));
         }
-    }
 
-    @Override
-    public ListenableFuture<Result> startWork() {
 
-        ListenableFuture<Result> future = CallbackToFutureAdapter.getFuture(
-                new CallbackToFutureAdapter.Resolver<Result>() {
-                    @Nullable
-                    @Override
-                    public Object attachCompleter(@NonNull CallbackToFutureAdapter.Completer<Result> callback) throws Exception {
-                        LocationWork.this.callback = callback;
-                        Log.d("debugshani","creating listanable future");
-                        Context context = LocationWork.this.context;
-                        boolean hasLocationPermission = context.checkSelfPermission(
-                                Manifest.permission.ACCESS_FINE_LOCATION)
-                                == PackageManager.PERMISSION_GRANTED;
-                        boolean hasSmsPermission = context.checkSelfPermission(
-                                Manifest.permission.SEND_SMS)
-                                == PackageManager.PERMISSION_GRANTED;
-                        String phoneNumber = sp.getString(MainActivity.PHONE,null);
-//                        String content = sp.getString(MainActivity.CONTENT,null);
-                        if (hasLocationPermission && hasSmsPermission && phoneNumber != null) {
-                            LocationRequest locationRequest = new LocationRequest();
-                            locationRequest.setInterval(5);
-                            fusedLocationClient.requestLocationUpdates(locationRequest,
-                                    locationCallback,
-                                    Looper.getMainLooper());//TODO check what the format
+        locationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                if (locationResult != null && locationResult.getLastLocation() != null) {
+                    Location location = locationResult.getLastLocation();
+                    Log.d("shani", "location not null");
+                    if (location.getAccuracy() <= 50.0) {
+                        Log.d("shani", "adccuracy good");
+                        if (lastLocation == null || location.distanceTo(lastLocation) >= 50) {
+                            if (homeLocation != null) {
+                                if (location.distanceTo(homeLocation) < 50) {
+                                    Log.d("shani", "dammm youre home");
+                                    Intent intent = new Intent();
+                                    intent.setAction(MainActivity.BROADCAST_SMS);
+                                    intent.putExtra(MainActivity.PHONE,sp.getString(MainActivity.PHONE,null));
+                                    intent.putExtra(MainActivity.CONTENT, "Honey I'm home!");
+                                    context.sendBroadcast(intent);
+                                }
+                            }
                         }
-
-                        callback.set(Result.success());
-                        return null;
+                        fusedLocationClient.removeLocationUpdates(locationCallback);
                     }
                 }
-        );
-        return future;
+
+            }
+        };
+
+    }
+
+    @NonNull
+    @Override
+    public Result doWork() {
+        Log.d("debugshani","creating listanable future");
+        Context context = LocationWork.this.context;
+        if(hasPerms(context)) {
+            LocationRequest locationRequest = LocationRequest.create();
+            locationRequest.setInterval(10000);
+            locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+            locationRequest.setFastestInterval(5000);
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(context);
+            fusedLocationClient.requestLocationUpdates(locationRequest,
+                    locationCallback,
+                    Looper.getMainLooper());//TODO check what the format
+        }
+        return Result.success();
+    }
+
+    private boolean hasPerms(Context context) {
+        boolean hasLocationPermission = context.checkSelfPermission(
+                Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean hasSmsPermission = context.checkSelfPermission(
+                Manifest.permission.SEND_SMS)
+                == PackageManager.PERMISSION_GRANTED;
+        String phoneNumber = sp.getString(MainActivity.PHONE,null);
+//                        String content = sp.getString(MainActivity.CONTENT,null);
+        return hasLocationPermission && hasSmsPermission && phoneNumber != null;
     }
 
 
