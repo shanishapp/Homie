@@ -15,7 +15,6 @@ public class HomieApp extends Application {
 
     private BroadcastReceiver myReceiver;
 
-
     @Override
     public void onCreate() {
         super.onCreate();

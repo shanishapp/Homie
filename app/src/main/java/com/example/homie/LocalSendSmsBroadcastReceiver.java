@@ -57,7 +57,6 @@ public class LocalSendSmsBroadcastReceiver extends BroadcastReceiver {
         NotificationManager notifictionManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         notifictionManager.notify(MainActivity.NOTIFICATION_ID, builder);
     }
-
     private void createChannelIfNotExists(String description, Context context) {
         // Create the NotificationChannel, but only on API 26+ because
         // the NotificationChannel class is new and not in the support library

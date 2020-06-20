@@ -3,16 +3,11 @@ package com.example.homie;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.work.PeriodicWorkRequest;
-import androidx.work.WorkManager;
-
 import android.Manifest;
 import android.app.AlertDialog;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -21,30 +16,17 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.Debug;
-import android.os.Looper;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
-import android.widget.Toast;
-
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.gson.Gson;
-
 import java.text.DecimalFormat;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_CODE = 1546;
+    private static final int REQUEST_CODE_TEST_SMS = 1547;
     private static final String REQUESTING_UPDATES = "requestingUpdates";
     public static final String HOME_LONGITUDE = "homeLongitude";
     public static final String HOME_LATITUDE = "homeLatitude";
@@ -104,8 +86,12 @@ public class MainActivity extends AppCompatActivity {
         currentAccuracy.setText(sp.getString(ACCURACY,"no location"));
         homeLatitude = sp.getString(HOME_LATITUDE, "");
         homeLongitude = sp.getString(HOME_LONGITUDE, "");
-    }
 
+        if(sp.contains(PHONE)) {
+            Button button = findViewById(R.id.test_sms_button);
+            button.setVisibility(View.VISIBLE);
+        }
+    }
 
     LocationListener locationListenerGPS=new LocationListener() {
         @Override
@@ -140,13 +126,14 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-
     public void startLocate(View view) {
+        boolean hasPermission = true;
 
-        boolean hasPermission =
-                ActivityCompat.checkSelfPermission(this,
-                        Manifest.permission.ACCESS_FINE_LOCATION)==
-                        PackageManager.PERMISSION_GRANTED;
+        if(view != null) {
+            hasPermission = ActivityCompat.checkSelfPermission(this,
+                    Manifest.permission.ACCESS_FINE_LOCATION)==
+                    PackageManager.PERMISSION_GRANTED;
+        }
         if(hasPermission) {
             //check if gps enabled
             if ( !locationManager.isProviderEnabled( LocationManager.GPS_PROVIDER ) ) {
@@ -172,28 +159,35 @@ public class MainActivity extends AppCompatActivity {
             String perm = permissions[i];
             if(res == PackageManager.PERMISSION_GRANTED){
 
-                if (perm == Manifest.permission.ACCESS_FINE_LOCATION) {
+                if (perm.equals(Manifest.permission.ACCESS_FINE_LOCATION)) {
                     startLocate(null);
                 } else { // perm == Manifest.permission.SEMD_SMS
-                    showSetNumberDialog(null);
+                    if(requestCode == REQUEST_CODE)
+                        showSetNumberDialog(null);
+                    else
+                        testSms(null);
                 }
 
             } else {
                 if(ActivityCompat.shouldShowRequestPermissionRationale(this, perm)){
                     //show ui explain why that location needed
                     // maybe show before ask for permission
-                    showExplanation(perm); // TODO make general !!
+                    showExplanation(perm,requestCode); // TODO make general !!
                 }
             }
         }
     }
 
-    private void showExplanation(String perm) {
+    private void showExplanation(String perm, int requestcode) {
         final AlertDialog.Builder builder = new AlertDialog.Builder(this);
         if (perm.equals(Manifest.permission.ACCESS_FINE_LOCATION))
             builder.setMessage("We need to have Location permission to startTrackLocation you in real time");
-        else
-            builder.setMessage("We need to have SMS permissions to send sms");
+        else {
+            if(requestcode == REQUEST_CODE)
+                builder.setMessage("We need to have SMS permissions to send sms");
+            else
+                builder.setMessage("We need to have SMS permissions to test sms");
+        }
         final AlertDialog alert = builder.create();
         alert.show();
     }
@@ -204,8 +198,7 @@ public class MainActivity extends AppCompatActivity {
         change_button();
     }
 
-    private void change_button()
-    {
+    private void change_button() {
         if (!requestingLocationUpdates) {
             Button button = findViewById(R.id.locate_button);
             button.setText("Start tracking location");
@@ -280,7 +273,7 @@ public class MainActivity extends AppCompatActivity {
                 .putString(LONGTITUDE, currentLongitude.getText().toString())
                 .putString(LATITUDE,currentLatitude.getText().toString())
                 .putString(ACCURACY,currentAccuracy.getText().toString()).apply();
-//        stopTrackingLocation();
+        stopTrackingLocation();
     }
 
     public void setHomeLocation(View view) {
@@ -330,6 +323,8 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onClick(View v) {
                     sp.edit().putString(PHONE,phoneNumber.getText().toString()).apply();
+                    Button button = findViewById(R.id.test_sms_button);
+                    button.setVisibility(View.VISIBLE);
                     alertDialog.cancel();
                 }
             });
@@ -345,6 +340,8 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onClick(View v) {
                     sp.edit().remove(PHONE).apply();
+                    Button button = findViewById(R.id.test_sms_button);
+                    button.setVisibility(View.INVISIBLE);
                     alertDialog.cancel();
                 }
             });
@@ -357,10 +354,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void testSms(View view) {
-        boolean hasSmsPermission = this.checkSelfPermission(
-                Manifest.permission.SEND_SMS)
-                == PackageManager.PERMISSION_GRANTED;
-        if(hasSmsPermission) {
+        boolean hasPermission = true;
+        if(view != null) {
+            hasPermission =
+                    ActivityCompat.checkSelfPermission(this,
+                            Manifest.permission.SEND_SMS) ==
+                            PackageManager.PERMISSION_GRANTED;
+        }
+        if(hasPermission) {
             Intent intent = new Intent();
             intent.setAction(BROADCAST_SMS);
             intent.putExtra(PHONE,sp.getString(PHONE,null));
@@ -369,7 +370,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             ActivityCompat.requestPermissions(this,
                     new String[]{Manifest.permission.SEND_SMS},
-                    REQUEST_CODE);
+                    REQUEST_CODE_TEST_SMS);
         }
     }
 
